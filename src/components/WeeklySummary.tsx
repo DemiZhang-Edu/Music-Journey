@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { auth } from "@/src/lib/firebase";
+import { useFirebase } from "@/src/lib/firebase";
 import { localDB } from "@/src/lib/storage";
 import { generateWeeklyReport } from "@/src/lib/gemini";
 import { FileText, Sparkles, Copy, Loader2, Calendar, Download, Image as ImageIcon, Lock } from "lucide-react";
@@ -9,6 +9,7 @@ import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 
 export default function WeeklySummary() {
+  const { auth } = useFirebase();
   const [generating, setGenerating] = useState(false);
   const [report, setReport] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState(false);

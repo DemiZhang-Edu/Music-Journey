@@ -1,13 +1,15 @@
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { useState, useEffect } from 'react';
 
 // Singleton instances
 let authInstance: any = null;
 let dbInstance: any = null;
 
 const getFirebaseConfig = async () => {
-  // Try to load from environment variables first (Production/Vercel)
+  // 1. Try environment variables (Sync in Vite if defined at build time)
+  // Note: Only VITE_ prefixed variables are available in browser context usually
   const envConfig = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
     authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -22,15 +24,15 @@ const getFirebaseConfig = async () => {
     return envConfig;
   }
 
-  // Fallback to local config file (AI Studio)
+  // 2. Fallback to AI Studio dynamic config file
   try {
     // @ts-ignore - Dynamic import to avoid build errors if file is missing
     const m = await import(/* @vite-ignore */ '../../firebase-applet-config.json');
-    return m.default;
+    if (m && m.default) return m.default;
   } catch (e) {
-    console.info("Config file missing, relying on env vars or local-first mode.");
-    return null;
+    // Expected in production if env vars are used
   }
+  return null;
 };
 
 export const initFirebase = async () => {
@@ -39,9 +41,15 @@ export const initFirebase = async () => {
   const config = await getFirebaseConfig();
   if (config && config.apiKey && config.projectId) {
     try {
-      const app = getApps().length === 0 ? initializeApp(config) : getApp();
+      const apps = getApps();
+      const app = apps.length === 0 ? initializeApp(config) : apps[0];
       authInstance = getAuth(app);
       dbInstance = getFirestore(app, config.firestoreDatabaseId || "(default)");
+      
+      // Update the exported placeholders
+      auth = authInstance;
+      db = dbInstance;
+      
       return { auth: authInstance, db: dbInstance };
     } catch (err) {
       console.warn("Firebase initialization failed:", err);
@@ -51,17 +59,49 @@ export const initFirebase = async () => {
 };
 
 // Immediate background initialization
+// We update the exported 'let' variables as soon as ready
 initFirebase().then(instances => {
-  (window as any).firebaseReady = instances;
-  auth = instances.auth;
-  db = instances.db;
-  (window as any).auth = auth;
-  (window as any).db = db;
+  if (instances.auth) {
+    auth = instances.auth;
+    db = instances.db;
+  }
 });
 
 // Proxy exports that attempt to return instances if they exist
 export let auth: any = null;
 export let db: any = null;
+
+/**
+ * Hook to use Firebase instances once they are ready.
+ */
+export function useFirebase() {
+  const [instances, setInstances] = useState({ auth: authInstance, db: dbInstance });
+
+  useEffect(() => {
+    // If already loaded, we're good
+    if (authInstance && dbInstance) {
+      setInstances({ auth: authInstance, db: dbInstance });
+      return;
+    }
+
+    // Otherwise, wait for initialization
+    initFirebase().then(res => {
+      setInstances(res);
+    });
+
+    // Also poll slightly if needed (insurance for module-level updates)
+    const timer = setInterval(() => {
+      if (authInstance && !instances.auth) {
+        setInstances({ auth: authInstance, db: dbInstance });
+        clearInterval(timer);
+      }
+    }, 500);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  return instances;
+}
 
 export const getAuthInstance = () => authInstance;
 export const getDbInstance = () => dbInstance;

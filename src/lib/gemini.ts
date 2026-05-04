@@ -6,8 +6,9 @@ let currentKey: string | null = null;
 
 function getAI() {
   const localKey = localDB.getAIKey();
-  const envKey = import.meta.env.VITE_GEMINI_API_KEY;
-  const apiKey = localKey || envKey;
+  // process.env.GEMINI_API_KEY is injected by Vite in AI Studio
+  // import.meta.env.VITE_GEMINI_API_KEY is used for traditional Vite env vars
+  const apiKey = localKey || process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
 
   if (!apiKey) {
     throw new Error("Missing Gemini API Key. Please visit Settings to set your own key.");
@@ -16,7 +17,6 @@ function getAI() {
   // If key changed, recreate instance
   if (!aiInstance || currentKey !== apiKey) {
     currentKey = apiKey;
-    // @ts-ignore
     aiInstance = new GoogleGenAI({ apiKey });
   }
   return aiInstance;

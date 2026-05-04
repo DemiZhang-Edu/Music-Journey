@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { auth } from "@/src/lib/firebase";
+import { useFirebase } from "@/src/lib/firebase";
 import { localDB } from "@/src/lib/storage";
 import { analyzeMusicPiece, analyzeSheetMusicPdf } from "@/src/lib/gemini";
 import { Plus, Trash2, Sparkles, ChevronRight, Loader2, Music2, FileUp, FileText, Printer, Download, Image, Lock } from "lucide-react";
@@ -8,6 +8,7 @@ import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 
 export default function PieceLibrary() {
+  const { auth } = useFirebase();
   const [isAdding, setIsAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [composer, setComposer] = useState("");

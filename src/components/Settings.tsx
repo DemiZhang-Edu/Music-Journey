@@ -1,25 +1,14 @@
 import { useState, useEffect } from "react";
 import { localDB } from "@/src/lib/storage";
-import { auth, signInWithGoogle, signOut, db } from "@/src/lib/firebase";
+import { useFirebase, signInWithGoogle, signOut } from "@/src/lib/firebase";
 import { Key, LogIn, LogOut, ShieldCheck, Info, Sparkles, ExternalLink, AlertCircle, RefreshCw } from "lucide-react";
 import { motion } from "motion/react";
 
 export default function Settings() {
   const [apiKey, setApiKey] = useState(localDB.getAIKey());
   const [saved, setSaved] = useState(false);
-  const [fbAuth, setFbAuth] = useState<any>(auth);
-  const [cloudActive, setCloudActive] = useState(!!auth && !!db);
-
-  useEffect(() => {
-    // Re-check cloud status after a short delay to account for async firebase init
-    const timer = setInterval(() => {
-      if (!!auth && !!db && !fbAuth) {
-        setFbAuth(auth);
-        setCloudActive(true);
-      }
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [fbAuth]);
+  const { auth, db } = useFirebase();
+  const cloudActive = !!auth && !!db;
 
   const handleSaveKey = () => {
     localDB.setAIKey(apiKey);
@@ -117,15 +106,15 @@ export default function Settings() {
           </div>
         )}
 
-        {fbAuth?.currentUser ? (
+        {auth?.currentUser ? (
           <div className="flex items-center justify-between bg-brand-cream p-4 rounded-2xl">
             <div className="flex items-center gap-3">
-              {fbAuth.currentUser.photoURL && (
-                <img src={fbAuth.currentUser.photoURL} alt="" className="w-10 h-10 rounded-full border-2 border-white shadow-sm" />
+              {auth.currentUser.photoURL && (
+                <img src={auth.currentUser.photoURL} alt="" className="w-10 h-10 rounded-full border-2 border-white shadow-sm" />
               )}
               <div>
-                <p className="text-sm font-semibold text-brand-warm-black">{fbAuth.currentUser.displayName}</p>
-                <p className="text-xs text-brand-warm-black/40">{fbAuth.currentUser.email}</p>
+                <p className="text-sm font-semibold text-brand-warm-black">{auth.currentUser.displayName}</p>
+                <p className="text-xs text-brand-warm-black/40">{auth.currentUser.email}</p>
               </div>
             </div>
             <button 

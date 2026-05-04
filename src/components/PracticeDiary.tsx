@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { auth } from "@/src/lib/firebase";
+import { useFirebase } from "@/src/lib/firebase";
 import { localDB } from "@/src/lib/storage";
 import { getEncouragement } from "@/src/lib/gemini";
 import { Plus, History, Clock, BookOpen, Quote, Loader2, Star, CheckCircle2, Trash2, PieChart as PieIcon, Lock } from "lucide-react";
@@ -8,6 +8,7 @@ import { format, subDays, isAfter } from "date-fns";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 
 export default function PracticeDiary() {
+  const { auth } = useFirebase();
   const [isAdding, setIsAdding] = useState(false);
   const [pieceId, setPieceId] = useState("");
   const [duration, setDuration] = useState(30);
