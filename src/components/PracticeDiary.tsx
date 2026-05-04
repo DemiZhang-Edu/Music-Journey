@@ -1,9 +1,8 @@
-import { useState, useMemo } from "react";
-import { collection, addDoc, query, where, orderBy, doc, getDoc, deleteDoc } from "firebase/firestore";
-import { useCollection } from "react-firebase-hooks/firestore";
-import { auth, db, handleFirestoreError, OperationType } from "@/src/lib/firebase";
+import { useState, useEffect, useMemo } from "react";
+import { auth } from "@/src/lib/firebase";
+import { localDB } from "@/src/lib/storage";
 import { getEncouragement } from "@/src/lib/gemini";
-import { Plus, History, Clock, BookOpen, Quote, Loader2, Star, CheckCircle2, Trash2, PieChart as PieIcon } from "lucide-react";
+import { Plus, History, Clock, BookOpen, Quote, Loader2, Star, CheckCircle2, Trash2, PieChart as PieIcon, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { format, subDays, isAfter } from "date-fns";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
@@ -19,18 +18,23 @@ export default function PracticeDiary() {
   const [submitting, setSubmitting] = useState(false);
   const [lastEncouragement, setLastEncouragement] = useState<string | null>(null);
 
-  const practicesRef = collection(db, "practices");
-  const q = query(practicesRef, where("userId", "==", auth.currentUser?.uid), orderBy("date", "desc"));
-  const [logsSnapshot, loading] = useCollection(q);
-  const logs = logsSnapshot?.docs.map(doc => ({ ...doc.data() as any, id: doc.id }));
+  // Local data state
+  const [logs, setLogs] = useState<any[]>([]);
+  const [pieces, setPieces] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const piecesRef = collection(db, "pieces");
-  const pq = query(piecesRef, where("userId", "==", auth.currentUser?.uid));
-  const [piecesSnapshot] = useCollection(pq);
-  const pieces = piecesSnapshot?.docs.map(doc => ({ ...doc.data() as any, id: doc.id }));
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = () => {
+    setLogs(localDB.getEntries());
+    setPieces(localDB.getPieces());
+    setLoading(false);
+  };
 
   const stats = useMemo(() => {
-    if (!logs) return null;
+    if (!logs || logs.length === 0) return null;
     const lastWeek = subDays(new Date(), 7);
     const weeklyLogs = logs.filter(log => isAfter(new Date(log.date), lastWeek));
     
@@ -48,27 +52,33 @@ export default function PracticeDiary() {
     if (selfDuration === 0 && teacherDuration === 0) return null;
 
     return [
-      { name: "Independent Practice", value: selfDuration, color: "#4C3428" }, // brand-olive approx
-      { name: "Practice with Teacher", value: teacherDuration, color: "#D4C7B3" } // lighter version
+      { name: "Independent Practice", value: selfDuration, color: "#636F5C" }, 
+      { name: "Practice with Teacher", value: teacherDuration, color: "#D4C7B3" }
     ];
   }, [logs]);
 
   const handleAddLog = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth.currentUser) return;
-
     setSubmitting(true);
     try {
       let pieceTitle = "Free Practice";
       if (pieceId) {
-        const pieceDoc = await getDoc(doc(db, "pieces", pieceId));
-        if (pieceDoc.exists()) pieceTitle = pieceDoc.data().title;
+        const piece = pieces.find(p => p.id === pieceId);
+        if (piece) pieceTitle = piece.title;
       }
 
-      const encouragement = await getEncouragement(pieceTitle, duration, notes);
+      let encouragement = null;
+      // AI gate: Only if authenticated
+      if (auth?.currentUser) {
+        try {
+          encouragement = await getEncouragement(pieceTitle, duration, notes);
+        } catch (aiError) {
+          console.warn("AI Encouragement failed:", aiError);
+        }
+      }
       
-      await addDoc(practicesRef, {
-        userId: auth.currentUser.uid,
+      const newEntry = {
+        id: crypto.randomUUID(),
         pieceId,
         pieceTitle,
         duration,
@@ -79,9 +89,12 @@ export default function PracticeDiary() {
         encouragement,
         date: new Date().toISOString(),
         createdAt: new Date().toISOString(),
-      });
+      };
 
-      setLastEncouragement(encouragement);
+      localDB.saveEntry(newEntry);
+      loadData(); // Refresh local state
+
+      if (encouragement) setLastEncouragement(encouragement);
       setPieceId("");
       setDuration(30);
       setNotes("");
@@ -89,7 +102,7 @@ export default function PracticeDiary() {
       setListenedToPerformances("");
       setIsAdding(false);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, "practices");
+      console.error("Failed to add log:", error);
     } finally {
       setSubmitting(false);
     }
@@ -97,15 +110,11 @@ export default function PracticeDiary() {
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const handleDeleteLog = async (id: string, e: React.MouseEvent) => {
+  const handleDeleteLog = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setDeletingId(id);
-    try {
-      await deleteDoc(doc(db, "practices", id));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `practices/${id}`);
-    } finally {
-      setDeletingId(null);
+    if (confirm("Delete this log?")) {
+      localDB.deleteEntry(id);
+      loadData();
     }
   };
 
@@ -271,9 +280,16 @@ export default function PracticeDiary() {
             <button 
               disabled={submitting}
               type="submit" 
-              className="btn-primary w-full py-4 flex items-center justify-center gap-2"
+              className="btn-primary w-full py-4 flex flex-col items-center justify-center gap-1 group"
             >
-              {submitting ? <Loader2 className="animate-spin w-5 h-5" /> : <><CheckCircle2 className="w-5 h-5" /> Complete Log</>}
+              <div className="flex items-center gap-2">
+                {submitting ? <Loader2 className="animate-spin w-5 h-5" /> : <><CheckCircle2 className="w-5 h-5" /> Complete Log</>}
+              </div>
+              {!auth?.currentUser && !submitting && (
+                <span className="text-[9px] font-bold uppercase tracking-widest text-white/50 group-hover:text-white/80 transition-colors flex items-center gap-1">
+                  <Lock className="w-2.5 h-2.5" /> Guest Mode: No AI Encouragement
+                </span>
+              )}
             </button>
           </motion.form>
         )}

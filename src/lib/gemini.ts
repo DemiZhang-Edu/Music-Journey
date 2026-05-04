@@ -1,13 +1,21 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import { localDB } from "./storage";
 
 let aiInstance: GoogleGenAI | null = null;
+let currentKey: string | null = null;
 
 function getAI() {
-  if (!aiInstance) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY environment variable is required");
-    }
+  const localKey = localDB.getAIKey();
+  const envKey = import.meta.env.VITE_GEMINI_API_KEY;
+  const apiKey = localKey || envKey;
+
+  if (!apiKey) {
+    throw new Error("Missing Gemini API Key. Please visit Settings to set your own key.");
+  }
+
+  // If key changed, recreate instance
+  if (!aiInstance || currentKey !== apiKey) {
+    currentKey = apiKey;
     // @ts-ignore
     aiInstance = new GoogleGenAI({ apiKey });
   }

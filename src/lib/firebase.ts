@@ -1,43 +1,52 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfigFromJson from '../../firebase-applet-config.json';
 
-// Use environment variables as primary source, fallback to JSON for local/preview
+// Use environment variables for configuration. 
+// These must be set in Vercel or your local .env file.
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigFromJson.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigFromJson.authDomain,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfigFromJson.projectId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigFromJson.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigFromJson.messagingSenderId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfigFromJson.appId,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || firebaseConfigFromJson.firestoreDatabaseId
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID
 };
 
 // Validate config before initialization
-const isConfigValid = firebaseConfig.apiKey && firebaseConfig.projectId;
+const isConfigValid = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
 
-if (!isConfigValid) {
-  console.warn("Firebase configuration is missing. Please set VITE_FIREBASE_* environment variables.");
-}
+let app;
+let auth: any = null;
+let db: any = null;
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || "(default)");
-export const googleProvider = new GoogleAuthProvider();
-
-export const signInWithGoogle = () => signInWithPopup(auth, googleProvider);
-
-async function testConnection() {
+if (isConfigValid) {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
-    }
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app, firebaseConfig.firestoreDatabaseId || "(default)");
+  } catch (err) {
+    console.warn("Firebase initialization failed:", err);
   }
+} else {
+  // Silent fallback for local-first mode
+  console.info("Firebase not configured. Running in Local-First mode.");
 }
-testConnection();
+
+export { auth, db };
+export const googleProvider = auth ? new GoogleAuthProvider() : null;
+
+export const signInWithGoogle = async () => {
+  if (!auth || !googleProvider) {
+    throw new Error("Firebase Auth is not configured.");
+  }
+  return signInWithPopup(auth, googleProvider);
+};
+
+export const signOut = async () => {
+  if (auth) return auth.signOut();
+};
 
 export enum OperationType {
   CREATE = 'create',

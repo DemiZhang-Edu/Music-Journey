@@ -1,0 +1,17 @@
+{
+  "name": "Music Journey",
+  "short_name": "Music Journey",
+  "description": "音乐练习AI伴侣",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FCFAF7",
+  "theme_color": "#636F5C",
+  "icons": [
+    {
+      "src": "https://img.icons8.com/ios-filled/512/636F5C/music-notation.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

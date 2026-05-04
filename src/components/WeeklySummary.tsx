@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { collection, query, where, orderBy, getDocs } from "firebase/firestore";
-import { auth, db } from "@/src/lib/firebase";
+import { auth } from "@/src/lib/firebase";
+import { localDB } from "@/src/lib/storage";
 import { generateWeeklyReport } from "@/src/lib/gemini";
-import { FileText, Sparkles, Copy, Loader2, Calendar, Download, Image as ImageIcon } from "lucide-react";
+import { FileText, Sparkles, Copy, Loader2, Calendar, Download, Image as ImageIcon, Lock } from "lucide-react";
 import { motion } from "motion/react";
-import { format, subDays } from "date-fns";
+import { format, subDays, isAfter } from "date-fns";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 
@@ -15,128 +15,53 @@ export default function WeeklySummary() {
   const [exportingImageId, setExportingImageId] = useState(false);
 
   const exportToImage = async () => {
-    const elementId = "weekly-report-content";
-    const element = document.getElementById(elementId);
+    const element = document.getElementById("weekly-report-content");
     if (!element) return;
-    
     setExportingImageId(true);
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        ignoreElements: (el) => el.classList.contains("no-print"),
-        onclone: (clonedDoc) => {
-          const styles = Array.from(clonedDoc.getElementsByTagName("style"));
-          styles.forEach(s => s.remove());
-          const links = Array.from(clonedDoc.querySelectorAll('link[rel="stylesheet"]'));
-          links.forEach(l => l.remove());
-          
-          const safeStyle = clonedDoc.createElement('style');
-          safeStyle.innerHTML = `
-            * { box-sizing: border-box; -webkit-print-color-adjust: exact; }
-            body { font-family: sans-serif; color: #000; background: #fff; margin: 0; padding: 0; }
-            .report-container { padding: 40px; }
-            .text-brand-olive { color: #5a5a40 !important; }
-            .font-bold { font-weight: 700; }
-            .text-xs { font-size: 12px; }
-            .tracking-widest { letter-spacing: 0.1em; }
-            .uppercase { text-transform: uppercase; }
-            .border-b { border-bottom: 1px solid #eee; }
-            .pb-4 { padding-bottom: 16px; }
-            .mb-4 { margin-bottom: 16px; }
-            .text-sm { font-size: 14px; line-height: 1.8; }
-            .whitespace-pre-wrap { white-space: pre-wrap; }
-          `;
-          clonedDoc.head.appendChild(safeStyle);
-        }
-      });
-      
+      const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
       const imgData = canvas.toDataURL("image/png");
       const link = document.createElement('a');
       link.href = imgData;
       link.download = `Weekly_Report_${format(new Date(), "yyyy-MM-dd")}.png`;
       link.click();
-    } catch (error) {
-      console.error("Image Export Error:", error);
-    } finally {
-      setExportingImageId(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setExportingImageId(false); }
   };
 
   const exportToPDF = async () => {
-    const elementId = "weekly-report-content";
-    const element = document.getElementById(elementId);
+    const element = document.getElementById("weekly-report-content");
     if (!element) return;
-    
     setExportingId(true);
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        ignoreElements: (el) => el.classList.contains("no-print"),
-        onclone: (clonedDoc) => {
-          const styles = Array.from(clonedDoc.getElementsByTagName("style"));
-          styles.forEach(s => s.remove());
-          const links = Array.from(clonedDoc.querySelectorAll('link[rel="stylesheet"]'));
-          links.forEach(l => l.remove());
-          const safeStyle = clonedDoc.createElement('style');
-          safeStyle.innerHTML = `
-            * { box-sizing: border-box; -webkit-print-color-adjust: exact; }
-            body { font-family: sans-serif; color: #000; background: #fff; margin: 0; padding: 0; }
-            .report-container { padding: 40px; }
-            .text-brand-olive { color: #5a5a40 !important; }
-            .font-bold { font-weight: 700; }
-            .text-xs { font-size: 12px; }
-            .tracking-widest { letter-spacing: 0.1em; }
-            .uppercase { text-transform: uppercase; }
-            .border-b { border-bottom: 1px solid #eee; }
-            .pb-4 { padding-bottom: 16px; }
-            .mb-4 { margin-bottom: 16px; }
-            .text-sm { font-size: 14px; line-height: 1.8; }
-            .whitespace-pre-wrap { white-space: pre-wrap; }
-          `;
-          clonedDoc.head.appendChild(safeStyle);
-        }
-      });
-      
-      const imgData = canvas.toDataURL("image/png", 0.95);
+      const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+      const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF("p", "mm", "a4");
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const margin = 15;
-      const ratio = Math.min((pdfWidth - margin*2) / canvas.width, (pdfHeight - margin*2) / canvas.height);
-      pdf.addImage(imgData, "PNG", margin, margin, canvas.width * ratio, canvas.height * ratio);
+      pdf.addImage(imgData, "PNG", 15, 15, 180, (180 * canvas.height) / canvas.width);
       pdf.save(`Weekly_Report_${format(new Date(), "yyyy-MM-dd")}.pdf`);
-    } catch (error) {
-      console.error("PDF Export Error:", error);
-    } finally {
-      setExportingId(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setExportingId(false); }
   };
 
   const handleGenerate = async () => {
-    if (!auth.currentUser) return;
+    if (!auth?.currentUser) {
+      alert("Please sign in to generate AI Weekly Reports.");
+      return;
+    }
     setGenerating(true);
     try {
-      const sevenDaysAgo = subDays(new Date(), 7).toISOString();
-      const q = query(
-        collection(db, "practices"),
-        where("userId", "==", auth.currentUser.uid),
-        where("date", ">=", sevenDaysAgo),
-        orderBy("date", "desc")
-      );
+      const logs = localDB.getEntries();
+      const sevenDaysAgo = subDays(new Date(), 7);
+      const weeklyLogs = logs.filter(log => isAfter(new Date(log.date), sevenDaysAgo));
       
-      const snapshot = await getDocs(q);
-      const practices = snapshot.docs.map(doc => ({
-        pieceTitle: doc.data().pieceTitle,
-        duration: doc.data().duration,
-        practiceType: doc.data().practiceType === 'with_teacher' ? 'Teacher' : 'Independent',
-        targetTempo: doc.data().targetTempo || 'N/A',
-        listenedToPerformances: doc.data().listenedToPerformances || 'None',
-        notes: doc.data().notes,
-        date: format(new Date(doc.data().date), "yyyy-MM-dd")
+      const practices = weeklyLogs.map(log => ({
+        pieceTitle: log.pieceTitle,
+        duration: log.duration,
+        practiceType: log.practiceType === 'with_teacher' ? 'Teacher' : 'Independent',
+        targetTempo: log.targetTempo || 'N/A',
+        listenedToPerformances: log.listenedToPerformances || 'None',
+        notes: log.notes,
+        date: format(new Date(log.date), "yyyy-MM-dd")
       }));
 
       if (practices.length === 0) {
@@ -178,9 +103,11 @@ export default function WeeklySummary() {
         <button 
           disabled={generating}
           onClick={handleGenerate}
-          className="bg-white text-brand-olive px-8 py-3 rounded-full font-bold shadow-lg shadow-black/10 flex items-center justify-center gap-2 mx-auto disabled:opacity-50 transition-transform active:scale-95"
+          className={`bg-white text-brand-olive px-8 py-3 rounded-full font-bold shadow-lg shadow-black/10 flex items-center justify-center gap-2 mx-auto disabled:opacity-50 transition-transform active:scale-95 ${!auth?.currentUser ? 'opacity-70' : ''}`}
         >
-          {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Sparkles className="w-5 h-5" /> Generate Report</>}
+          {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+            auth?.currentUser ? <><Sparkles className="w-5 h-5" /> Generate Report</> : <><Lock className="w-4 h-4" /> Sign in for AI Report</>
+          )}
         </button>
       </div>
 

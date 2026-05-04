@@ -1,7 +1,6 @@
-import { useState } from "react";
-import { collection, addDoc, query, where, orderBy, deleteDoc, doc } from "firebase/firestore";
-import { useCollection } from "react-firebase-hooks/firestore";
-import { auth, db, handleFirestoreError, OperationType } from "@/src/lib/firebase";
+import { useState, useEffect } from "react";
+import { auth } from "@/src/lib/firebase";
+import { localDB } from "@/src/lib/storage";
 import { researchCompetition } from "@/src/lib/gemini";
 import { Trophy, Calendar, ListChecks, Timer, Plus, Loader2, Trash2, MapPin, ExternalLink, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -13,26 +12,32 @@ export default function CompetitionPlanner() {
   const [isAdding, setIsAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const q = query(
-    collection(db, "competitions"),
-    where("userId", "==", auth.currentUser?.uid),
-    orderBy("date", "asc")
-  );
-  const [snapshot, loading] = useCollection(q);
-  const events = snapshot?.docs.map(doc => ({ ...doc.data() as any, id: doc.id }));
+  const [events, setEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = () => {
+    setEvents(localDB.getCompetitions());
+    setLoading(false);
+  };
 
   const handleAddCompetition = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchTerm.trim() || !auth.currentUser) return;
+    if (!searchTerm.trim()) return;
 
     setIsSearching(true);
     try {
       const info = await researchCompetition(searchTerm);
-      await addDoc(collection(db, "competitions"), {
+      const newEvent = {
         ...info,
-        userId: auth.currentUser.uid,
+        id: crypto.randomUUID(),
         createdAt: new Date().toISOString()
-      });
+      };
+      localDB.saveCompetition(newEvent);
+      loadData();
       setSearchTerm("");
       setIsAdding(false);
     } catch (error) {
@@ -43,17 +48,11 @@ export default function CompetitionPlanner() {
     }
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
+  const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm("Are you sure you want to remove this plan?")) return;
-    setDeletingId(id);
-    try {
-      await deleteDoc(doc(db, "competitions", id));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `competitions/${id}`);
-    } finally {
-      setDeletingId(null);
-    }
+    localDB.deleteCompetition(id);
+    loadData();
   };
 
   const getCountdown = (dateStr: string) => {

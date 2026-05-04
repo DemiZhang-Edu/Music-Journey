@@ -1,9 +1,8 @@
-import { useState, useRef } from "react";
-import { collection, addDoc, query, where, orderBy, deleteDoc, doc, updateDoc } from "firebase/firestore";
-import { useCollection } from "react-firebase-hooks/firestore";
-import { auth, db, handleFirestoreError, OperationType } from "@/src/lib/firebase";
+import { useState, useRef, useEffect } from "react";
+import { auth } from "@/src/lib/firebase";
+import { localDB } from "@/src/lib/storage";
 import { analyzeMusicPiece, analyzeSheetMusicPdf } from "@/src/lib/gemini";
-import { Plus, Trash2, Sparkles, ChevronRight, Loader2, Music2, FileUp, FileText, Printer, Download, Image } from "lucide-react";
+import { Plus, Trash2, Sparkles, ChevronRight, Loader2, Music2, FileUp, FileText, Printer, Download, Image, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
@@ -16,12 +15,20 @@ export default function PieceLibrary() {
   const [analyzingPdf, setAnalyzingPdf] = useState<string | null>(null);
   const [selectedPiece, setSelectedPiece] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const analysisRef = useRef<HTMLDivElement>(null);
+  
+  // Local data state
+  const [pieces, setPieces] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const piecesRef = collection(db, "pieces");
-  const q = query(piecesRef, where("userId", "==", auth.currentUser?.uid), orderBy("createdAt", "desc"));
-  const [piecesSnapshot, loading] = useCollection(q);
-  const pieces = piecesSnapshot?.docs.map(doc => ({ ...doc.data() as any, id: doc.id }));
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = () => {
+    const data = localDB.getPieces();
+    setPieces(data);
+    setLoading(false);
+  };
 
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [exportingImageId, setExportingImageId] = useState<string | null>(null);
@@ -29,269 +36,101 @@ export default function PieceLibrary() {
   const exportToImage = async (piece: any) => {
     const elementId = `analysis-content-${piece.id}`;
     const element = document.getElementById(elementId);
-    
-    if (!element) {
-      alert("Analysis content not found. Please ensure it is expanded.");
-      return;
-    }
-    
+    if (!element) return;
     setExportingImageId(piece.id);
-    
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: true,
-        backgroundColor: "#ffffff",
-        ignoreElements: (el) => el.classList.contains("no-print"),
-        onclone: (clonedDoc) => {
-          // 1. Destructive Stylesheet Sanitization
-          // Remove ALL existing style and link tags to stop html2canvas from parsing problematic modern CSS
-          const styles = Array.from(clonedDoc.getElementsByTagName("style"));
-          styles.forEach(s => s.remove());
-          const links = Array.from(clonedDoc.querySelectorAll('link[rel="stylesheet"]'));
-          links.forEach(l => l.remove());
-          
-          // 2. Inject a basic, safe stylesheet
-          const safeStyle = clonedDoc.createElement('style');
-          safeStyle.innerHTML = `
-            * { box-sizing: border-box; -webkit-print-color-adjust: exact; }
-            body { font-family: sans-serif; color: #000; background: #fff; margin: 0; padding: 0; }
-            .bg-brand-olive\\/5 { background-color: #f5f5f0 !important; }
-            .bg-white\\/50 { background-color: rgba(255, 255, 255, 0.5) !important; }
-            .text-brand-olive { color: #5a5a40 !important; }
-            .border-brand-olive\\/10 { border: 1px solid #e0e0d0 !important; }
-            .rounded-2xl { border-radius: 1rem; }
-            .p-5 { padding: 1.25rem; }
-            .p-3 { padding: 0.75rem; }
-            .space-y-4 > * + * { margin-top: 1rem; }
-            .grid { display: grid; }
-            .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
-            .flex { display: flex; }
-            .items-center { align-items: center; }
-            .gap-2 { gap: 0.5rem; }
-            .gap-4 { gap: 1rem; }
-            .font-bold { font-weight: 700; }
-            .font-semibold { font-weight: 600; }
-            .text-lg { font-size: 1.125rem; }
-            .text-sm { font-size: 0.875rem; }
-            .text-xs { font-size: 0.75rem; }
-            .text-black\\/40 { color: #888 !important; }
-            .text-black\\/60 { color: #666 !important; }
-            .uppercase { text-transform: uppercase; }
-            .italic { font-style: italic; }
-            .tracking-widest { letter-spacing: 0.1em; }
-            .leading-relaxed { line-height: 1.625; }
-            .list-none { list-style: none; }
-            .border-b { border-bottom: 1px solid #eee; }
-            .pb-4 { padding-bottom: 1rem; }
-            .mb-4 { margin-bottom: 1rem; }
-            ul { list-style: none; margin: 0; padding: 0; }
-          `;
-          clonedDoc.head.appendChild(safeStyle);
-
-          // 3. Clean inline styles and variables
-          const clonedElement = clonedDoc.getElementById(elementId);
-          if (clonedElement) {
-            const all = [clonedElement, ...Array.from(clonedElement.querySelectorAll("*"))];
-            all.forEach((el: any) => {
-              if (el.style) {
-                // Remove all CSS variables as they often point to oklch
-                for (let i = el.style.length - 1; i >= 0; i--) {
-                  const p = el.style[i];
-                  if (p.startsWith('--')) el.style.removeProperty(p);
-                }
-                // Fix specific color props
-                ['color', 'backgroundColor', 'borderColor'].forEach(p => {
-                  try {
-                    const v = (el.style as any)[p];
-                    if (v && (v.includes('oklch') || v.includes('oklab'))) {
-                      (el.style as any)[p] = '#5a5a40';
-                    }
-                  } catch(e) {}
-                });
-              }
-            });
-          }
-        }
-      });
-      
+      const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
       const imgData = canvas.toDataURL("image/png");
       const link = document.createElement('a');
       link.href = imgData;
-      link.download = `${piece.title.replace(/\s+/g, '_')}_Analysis.png`;
+      link.download = `${piece.title}_Analysis.png`;
       link.click();
-    } catch (error) {
-      console.error("Image Export Error:", error);
-      alert("Image Export failed. Try PDF export or opening in a new tab.");
-    } finally {
-      setExportingImageId(null);
-    }
+    } catch (e) { console.error(e); }
+    finally { setExportingImageId(null); }
   };
 
   const exportToPDF = async (piece: any) => {
     const elementId = `analysis-content-${piece.id}`;
     const element = document.getElementById(elementId);
-    
-    if (!element) {
-      alert("Analysis content not found. Please ensure it is expanded.");
-      return;
-    }
-    
+    if (!element) return;
     setExportingId(piece.id);
-    
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: true,
-        backgroundColor: "#ffffff",
-        ignoreElements: (el) => el.classList.contains("no-print"),
-        onclone: (clonedDoc) => {
-          // Destructive Stylesheet Sanitization (same as image)
-          const styles = Array.from(clonedDoc.getElementsByTagName("style"));
-          styles.forEach(s => s.remove());
-          const links = Array.from(clonedDoc.querySelectorAll('link[rel="stylesheet"]'));
-          links.forEach(l => l.remove());
-          
-          const safeStyle = clonedDoc.createElement('style');
-          safeStyle.innerHTML = `
-            * { box-sizing: border-box; -webkit-print-color-adjust: exact; }
-            body { font-family: sans-serif; color: #000; background: #fff; margin: 0; padding: 0; }
-            .bg-brand-olive\\/5 { background-color: #f5f5f0 !important; }
-            .bg-white\\/50 { background-color: rgba(255, 255, 255, 0.5) !important; }
-            .text-brand-olive { color: #5a5a40 !important; }
-            .border-brand-olive\\/10 { border: 1px solid #e0e0d0 !important; }
-            .rounded-2xl { border-radius: 1rem; }
-            .p-5 { padding: 1.25rem; }
-            .p-3 { padding: 0.75rem; }
-            .space-y-4 > * + * { margin-top: 1rem; }
-            .grid { display: grid; }
-            .flex { display: flex; }
-            .items-center { align-items: center; }
-            .gap-2 { gap: 0.5rem; }
-            .gap-4 { gap: 1rem; }
-            .font-bold { font-weight: 700; }
-            .text-lg { font-size: 1.125rem; }
-            .text-black\\/40 { color: #888 !important; }
-            .text-black\\/60 { color: #666 !important; }
-          `;
-          clonedDoc.head.appendChild(safeStyle);
-
-          const clonedElement = clonedDoc.getElementById(elementId);
-          if (clonedElement) {
-            const all = [clonedElement, ...Array.from(clonedElement.querySelectorAll("*"))];
-            all.forEach((el: any) => {
-              if (el.style) {
-                for (let i = el.style.length - 1; i >= 0; i--) {
-                  const p = el.style[i];
-                  if (p.startsWith('--')) el.style.removeProperty(p);
-                }
-              }
-            });
-          }
-        }
-      });
-      
-      const imgData = canvas.toDataURL("image/png", 0.95);
+      const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+      const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF("p", "mm", "a4");
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const margin = 10;
-      const maxWidth = pdfWidth - (margin * 2);
-      const maxHeight = pdfHeight - (margin * 2);
-      
-      const ratio = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
-      const finalWidth = canvas.width * ratio;
-      const finalHeight = canvas.height * ratio;
-
-      pdf.addImage(imgData, "PNG", margin, margin, finalWidth, finalHeight, undefined, 'FAST');
-      pdf.save(`${piece.title.replace(/\s+/g, '_')}_Analysis.pdf`);
-    } catch (error: any) {
-      console.error("PDF Export Error:", error);
-      alert(`PDF Export Failed: ${error.message || "Unknown error"}`);
-    } finally {
-      setExportingId(null);
-    }
+      pdf.addImage(imgData, "PNG", 10, 10, 190, (190 * canvas.height) / canvas.width);
+      pdf.save(`${piece.title}_Analysis.pdf`);
+    } catch (e) { console.error(e); }
+    finally { setExportingId(null); }
   };
 
-  const handleAddPiece = async (e: React.FormEvent) => {
+  const handleAddPiece = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !auth.currentUser) return;
-
-    try {
-      await addDoc(piecesRef, {
-        title,
-        composer,
-        userId: auth.currentUser.uid,
-        createdAt: new Date().toISOString(),
-      });
-      setTitle("");
-      setComposer("");
-      setIsAdding(false);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, "pieces");
-    }
+    if (!title) return;
+    const newPiece = {
+      id: crypto.randomUUID(),
+      title,
+      composer,
+      createdAt: new Date().toISOString(),
+    };
+    localDB.savePiece(newPiece);
+    loadData();
+    setTitle(""); setComposer(""); setIsAdding(false);
   };
 
   const handleFileChange = async (pieceId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || file.type !== "application/pdf") {
-      alert("Please upload the score in PDF format");
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      alert("File too large (over 10MB), please upload a smaller PDF");
+    if (!file || file.type !== "application/pdf") return;
+    if (!auth?.currentUser) {
+      alert("Please sign in to use Score AI Analysis.");
       return;
     }
 
     setAnalyzingPdf(pieceId);
-
     const reader = new FileReader();
     reader.onload = async (event) => {
       const base64 = (event.target?.result as string).split(",")[1];
       try {
         const analysis = await analyzeSheetMusicPdf(base64);
-        const pieceRef = doc(db, "pieces", pieceId);
-        await updateDoc(pieceRef, { pdfAnalysis: analysis });
-      } catch (error) {
-        console.error("PDF analysis failed", error);
-        alert("Score analysis failed, please try again.");
-      } finally {
-        setAnalyzingPdf(null);
-      }
+        const p = pieces.find(x => x.id === pieceId);
+        if (p) {
+          p.pdfAnalysis = analysis;
+          localDB.savePiece(p);
+          loadData();
+        }
+      } catch (error) { console.error(error); }
+      finally { setAnalyzingPdf(null); }
     };
     reader.readAsDataURL(file);
   };
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
+  const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setDeletingId(id);
-    try {
-      await deleteDoc(doc(db, "pieces", id));
+    if (confirm("Delete this piece?")) {
+      localDB.deletePiece(id);
+      loadData();
       if (selectedPiece?.id === id) setSelectedPiece(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `pieces/${id}`);
-    } finally {
-      setDeletingId(null);
     }
   };
 
   const handleAnalyze = async (piece: any) => {
+    if (!auth?.currentUser) {
+      alert("Please sign in to use AI Background Analysis.");
+      return;
+    }
     setAnalyzing(piece.id);
     try {
       const analysis = await analyzeMusicPiece(piece.title, piece.composer || "Unknown");
-      const pieceRef = doc(db, "pieces", piece.id);
-      await updateDoc(pieceRef, { ...analysis });
-    } catch (error) {
-      console.error("Analysis failed", error);
-      alert("AI analysis failed. Please check your connection and try again.");
-    } finally {
-      setAnalyzing(null);
-    }
+      const p = pieces.find(x => x.id === piece.id);
+      if (p) {
+        Object.assign(p, analysis);
+        localDB.savePiece(p);
+        loadData();
+      }
+    } catch (error) { console.error(error); }
+    finally { setAnalyzing(null); }
   };
 
   return (
@@ -373,20 +212,24 @@ export default function PieceLibrary() {
                     <button 
                       onClick={(e) => { e.stopPropagation(); (e.currentTarget.previousSibling as HTMLInputElement).click(); }}
                       disabled={analyzingPdf === piece.id}
-                      className="p-2 text-brand-olive hover:bg-brand-olive/10 rounded-full transition-colors"
-                      title="Upload Score for Analysis"
+                      className="p-2 text-brand-olive hover:bg-brand-olive/10 rounded-full transition-colors relative"
+                      title={auth?.currentUser ? "Upload Score for Analysis" : "Sign in to use Score AI"}
                     >
-                      {analyzingPdf === piece.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileUp className="w-5 h-5" />}
+                      {analyzingPdf === piece.id ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+                        auth?.currentUser ? <FileUp className="w-5 h-5" /> : <div className="relative"><FileUp className="w-5 h-5 opacity-40" /><Lock className="w-3 h-3 absolute -top-1 -right-1 text-black/40" /></div>
+                      )}
                     </button>
                   )}
                   {!piece.background && (
                     <button 
                       onClick={(e) => { e.stopPropagation(); handleAnalyze(piece); }}
                       disabled={analyzing === piece.id}
-                      className="p-2 text-brand-olive hover:bg-brand-olive/10 rounded-full transition-colors"
-                      title="AI Background Analysis"
+                      className="p-2 text-brand-olive hover:bg-brand-olive/10 rounded-full transition-colors relative"
+                      title={auth?.currentUser ? "AI Background Analysis" : "Sign in to use AI Analysis"}
                     >
-                      {analyzing === piece.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                      {analyzing === piece.id ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+                        auth?.currentUser ? <Sparkles className="w-5 h-5" /> : <div className="relative"><Sparkles className="w-5 h-5 opacity-40" /><Lock className="w-3 h-3 absolute -top-1 -right-1 text-black/40" /></div>
+                      )}
                     </button>
                   )}
                   <button 
