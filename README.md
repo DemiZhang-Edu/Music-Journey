@@ -37,3 +37,18 @@
 
 ---
 *Created with ❤️ for musicians everywhere.*
+
+## 🚀 部署到 Vercel (Deployment)
+
+1. 点击 AI Studio 右侧的 **"GitHub"** 按钮进行 **"Commit & Push"**。
+2. 在 Vercel 后台导入该仓库。
+3. **关键：** 在 Vercel 的 Environment Variables 中配置以下变量（值可参考本地 `firebase-applet-config.json`）：
+   - `VITE_FIREBASE_API_KEY`
+   - `VITE_FIREBASE_PROJECT_ID`
+   - `VITE_FIREBASE_APP_ID`
+   - `VITE_FIREBASE_AUTH_DOMAIN`
+   - `VITE_FIREBASE_STORAGE_BUCKET`
+   - `VITE_FIREBASE_MESSAGING_SENDER_ID`
+   - `VITE_FIREBASE_FIRESTORE_DATABASE_ID` (默认为 `(default)`)
+   - `VITE_GEMINI_API_KEY`
+
