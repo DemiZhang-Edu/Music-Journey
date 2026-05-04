@@ -33,6 +33,7 @@ const getFirebaseConfig = () => {
 let auth: any = null;
 let db: any = null;
 
+// Firebase initialization logic with dynamic config support
 const initFirebase = async () => {
   await loadAppletConfig();
   const config = getFirebaseConfig();
