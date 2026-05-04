@@ -1,38 +1,56 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 
-// Use environment variables for configuration. 
-// These must be set in Vercel or your local .env file.
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID
+// In AI Studio, we have a generated config file.
+// In professional deployments (Vercel/GitHub), we use environment variables.
+// We merge them here, prioritizing environment variables.
+let appletConfig: any = {};
+try {
+  // @ts-ignore
+  import('../../firebase-applet-config.json').then(m => {
+    appletConfig = m.default;
+  }).catch(() => {
+    // Expected in production/Vercel where file is gitignored
+  });
+} catch (e) {
+  // Ignore
+}
+
+const getFirebaseConfig = () => {
+  return {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || appletConfig.apiKey,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || appletConfig.authDomain,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || appletConfig.projectId,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || appletConfig.messagingSenderId,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID || appletConfig.appId,
+    firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || appletConfig.firestoreDatabaseId
+  };
 };
 
-// Validate config before initialization
-const isConfigValid = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
-
-let app;
 let auth: any = null;
 let db: any = null;
 
-if (isConfigValid) {
-  try {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app, firebaseConfig.firestoreDatabaseId || "(default)");
-  } catch (err) {
-    console.warn("Firebase initialization failed:", err);
+const initFirebase = () => {
+  const config = getFirebaseConfig();
+  if (config.apiKey && config.projectId) {
+    try {
+      const app = getApps().length === 0 ? initializeApp(config) : getApp();
+      auth = getAuth(app);
+      db = getFirestore(app, config.firestoreDatabaseId || "(default)");
+    } catch (err) {
+      console.warn("Firebase initialization failed:", err);
+    }
   }
-} else {
-  // Silent fallback for local-first mode
-  console.info("Firebase not configured. Running in Local-First mode.");
-}
+};
+
+// Immediate attempt
+initFirebase();
+
+// Since dynamic import is async, we might need a small delay or a re-attempt
+// In AI Studio the file exists so it usually works immediately
+setTimeout(initFirebase, 500);
 
 export { auth, db };
 export const googleProvider = auth ? new GoogleAuthProvider() : null;

@@ -1,16 +1,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default deny
+    // 0. Global Safety Net
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Common helpers
+    // Phase 3: Primitive Definitions
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
@@ -19,85 +19,71 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // USERS
-    function isValidUser(data) {
-      return data.size() >= 2
-        && data.uid == request.auth.uid
-        && data.email is string && data.email.size() <= 200
-        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100))
-        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500));
-    }
-
-    match /users/{userId} {
-      allow get: if isOwner(userId);
-      allow create: if isOwner(userId) && isValidUser(request.resource.data);
-      allow update: if isOwner(userId) && isValidUser(request.resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL']);
-    }
-
-    // PIECES
+    // Piece Validation
     function isValidPiece(data) {
-      return data.userId == request.auth.uid
-        && data.title is string && data.title.size() > 0 && data.title.size() <= 200
+      return data.keys().hasAll(['id', 'title', 'userId', 'createdAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() <= 200
+        && data.userId == request.auth.uid
+        && data.createdAt is string // Schema says string format date-time
         && (!('composer' in data) || (data.composer is string && data.composer.size() <= 200))
-        && (!('era' in data) || (data.era is string && data.era.size() <= 100))
-        && (!('style' in data) || (data.style is string && data.style.size() <= 100))
-        && (!('background' in data) || (data.background is string && data.background.size() <= 5000))
-        && (!('pdfAnalysis' in data) || (data.pdfAnalysis is map))
-        && (!('difficultyAnalysis' in data) || (data.difficultyAnalysis is map));
+        && (!('background' in data) || (data.background is string && data.background.size() <= 5000));
     }
 
     match /pieces/{pieceId} {
+      allow get: if isOwner(resource.data.userId);
       allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidPiece(request.resource.data);
-      allow update: if isSignedIn() && resource.data.userId == request.auth.uid 
+      allow create: if isSignedIn() && isValidPiece(request.resource.data) && isValidId(pieceId);
+      allow update: if isOwner(resource.data.userId) 
         && isValidPiece(request.resource.data)
-        && request.resource.data.userId == resource.data.userId;
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.id == resource.data.id;
+      allow delete: if isOwner(resource.data.userId);
     }
 
-    // PRACTICES
-    function isValidPractice(data) {
-      return data.userId == request.auth.uid
-        && data.duration is number && data.duration > 0 && data.duration <= 1440
-        && data.date is string
-        && data.practiceType in ['self', 'with_teacher']
-        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 5000))
-        && (!('listenedToPerformances' in data) || (data.listenedToPerformances is string && data.listenedToPerformances.size() <= 1000))
-        && (!('targetTempo' in data) || (data.targetTempo is string && data.targetTempo.size() <= 100))
-        && (!('pieceId' in data) || (data.pieceId is string && data.pieceId.size() <= 128))
-        && (!('pieceTitle' in data) || (data.pieceTitle is string && data.pieceTitle.size() <= 200));
+    // Logs Validation
+    function isValidLog(data) {
+      return data.keys().hasAll(['id', 'userId', 'pieceId', 'pieceTitle', 'duration', 'date', 'createdAt'])
+        && data.id is string
+        && data.userId == request.auth.uid
+        && data.duration is number && data.duration >= 0
+        && data.pieceId is string;
     }
 
-    match /practices/{practiceId} {
+    match /logs/{logId} {
+      allow get: if isOwner(resource.data.userId);
       allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidPractice(request.resource.data);
-      allow update: if isSignedIn() && resource.data.userId == request.auth.uid
-        && isValidPractice(request.resource.data)
-        && request.resource.data.userId == resource.data.userId;
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidLog(request.resource.data) && isValidId(logId);
+      allow update: if isOwner(resource.data.userId) && isValidLog(request.resource.data);
+      allow delete: if isOwner(resource.data.userId);
     }
 
-    // COMPETITIONS
+    // Competitions Validation
     function isValidCompetition(data) {
-      return data.userId == request.auth.uid
-        && data.eventName is string && data.eventName.size() > 0 && data.eventName.size() <= 500
-        && data.date is string && data.date.size() <= 100
-        && data.requirements is list
-        && data.description is string && data.description.size() <= 2000
-        && data.createdAt is string;
+      return data.keys().hasAll(['id', 'userId', 'title', 'date', 'createdAt'])
+        && data.userId == request.auth.uid
+        && data.title is string && data.title.size() <= 200;
     }
 
-    match /competitions/{competitionId} {
+    match /competitions/{eventId} {
+      allow get: if isOwner(resource.data.userId);
       allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidCompetition(request.resource.data);
-      allow update: if isSignedIn() && resource.data.userId == request.auth.uid
-        && isValidCompetition(request.resource.data)
-        && request.resource.data.userId == resource.data.userId;
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidCompetition(request.resource.data) && isValidId(eventId);
+      allow update: if isOwner(resource.data.userId) && isValidCompetition(request.resource.data);
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    // Reports Validation
+    function isValidReport(data) {
+      return data.keys().hasAll(['id', 'userId', 'content', 'date', 'createdAt'])
+        && data.userId == request.auth.uid;
+    }
+
+    match /reports/{reportId} {
+      allow get: if isOwner(resource.data.userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidReport(request.resource.data) && isValidId(reportId);
+      allow delete: if isOwner(resource.data.userId);
     }
   }
 }
