@@ -20,8 +20,17 @@ import CompetitionPlanner from "./components/CompetitionPlanner";
 import Settings from "./components/Settings";
 
 export default function App() {
+  const [fbAuth, setFbAuth] = useState<any>(auth);
+  
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!!auth && !fbAuth) setFbAuth(auth);
+    }, 500);
+    return () => clearInterval(timer);
+  }, [fbAuth]);
+
   // Use Firebase auth if available, otherwise fallback to local guest mode
-  const [user, loading] = auth ? useAuthState(auth) : [null, false];
+  const [user, loading] = fbAuth ? useAuthState(fbAuth) : [null, false];
   const [activeTab, setActiveTab] = useState<"library" | "diary" | "summary" | "planner" | "settings">("diary");
 
   if (loading) {

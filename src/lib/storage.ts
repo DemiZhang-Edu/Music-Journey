@@ -1,5 +1,9 @@
 import { Piece, PracticeEntry } from '../types';
 
+/**
+ * Storage logic for Music Journey.
+ * Currently uses LocalStorage for persistent local data.
+ */
 const STORAGE_KEYS = {
   PIECES: 'mj_pieces',
   ENTRIES: 'mj_entries',
