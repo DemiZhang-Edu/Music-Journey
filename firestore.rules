@@ -1,0 +1,103 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // USERS
+    function isValidUser(data) {
+      return data.size() >= 2
+        && data.uid == request.auth.uid
+        && data.email is string && data.email.size() <= 200
+        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100))
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500));
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL']);
+    }
+
+    // PIECES
+    function isValidPiece(data) {
+      return data.userId == request.auth.uid
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 200
+        && (!('composer' in data) || (data.composer is string && data.composer.size() <= 200))
+        && (!('era' in data) || (data.era is string && data.era.size() <= 100))
+        && (!('style' in data) || (data.style is string && data.style.size() <= 100))
+        && (!('background' in data) || (data.background is string && data.background.size() <= 5000))
+        && (!('pdfAnalysis' in data) || (data.pdfAnalysis is map))
+        && (!('difficultyAnalysis' in data) || (data.difficultyAnalysis is map));
+    }
+
+    match /pieces/{pieceId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidPiece(request.resource.data);
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid 
+        && isValidPiece(request.resource.data)
+        && request.resource.data.userId == resource.data.userId;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // PRACTICES
+    function isValidPractice(data) {
+      return data.userId == request.auth.uid
+        && data.duration is number && data.duration > 0 && data.duration <= 1440
+        && data.date is string
+        && data.practiceType in ['self', 'with_teacher']
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 5000))
+        && (!('listenedToPerformances' in data) || (data.listenedToPerformances is string && data.listenedToPerformances.size() <= 1000))
+        && (!('targetTempo' in data) || (data.targetTempo is string && data.targetTempo.size() <= 100))
+        && (!('pieceId' in data) || (data.pieceId is string && data.pieceId.size() <= 128))
+        && (!('pieceTitle' in data) || (data.pieceTitle is string && data.pieceTitle.size() <= 200));
+    }
+
+    match /practices/{practiceId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidPractice(request.resource.data);
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid
+        && isValidPractice(request.resource.data)
+        && request.resource.data.userId == resource.data.userId;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // COMPETITIONS
+    function isValidCompetition(data) {
+      return data.userId == request.auth.uid
+        && data.eventName is string && data.eventName.size() > 0 && data.eventName.size() <= 500
+        && data.date is string && data.date.size() <= 100
+        && data.requirements is list
+        && data.description is string && data.description.size() <= 2000
+        && data.createdAt is string;
+    }
+
+    match /competitions/{competitionId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidCompetition(request.resource.data);
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid
+        && isValidCompetition(request.resource.data)
+        && request.resource.data.userId == resource.data.userId;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+  }
+}

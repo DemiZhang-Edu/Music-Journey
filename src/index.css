@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: 'Cormorant Garamond', serif;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --color-brand-olive: #5A5A40;
+  --color-brand-cream: #F5F5F0;
+  --color-brand-warm-black: #1A1A1A;
+}
+
+@layer base {
+  body {
+    @apply bg-brand-cream text-brand-warm-black font-sans antialiased;
+  }
+  
+  h1, h2, h3, h4 {
+    @apply font-serif;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-brand-olive text-white px-6 py-2 rounded-full transition-transform active:scale-95 disabled:opacity-50;
+  }
+  
+  .card {
+    @apply bg-white rounded-3xl p-6 shadow-sm border border-black/5;
+  }
+}
