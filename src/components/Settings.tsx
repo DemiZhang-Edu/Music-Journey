@@ -109,7 +109,7 @@ export default function Settings() {
             <div>
               <p className="text-xs font-bold text-amber-900">Waiting for Cloud Initialization...</p>
               <p className="text-[11px] text-amber-800/70 mt-0.5">
-                If this stays for more than 5 seconds, Firebase might not be configured correctly. Your data is still safe locally.
+                If you are running on <strong>Vercel</strong> or <strong>GitHub Pages</strong>, ensure you have set the <code>VITE_FIREBASE_*</code> environment variables in your deployment dashboard.
               </p>
             </div>
           </div>

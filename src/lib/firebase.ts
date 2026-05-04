@@ -4,17 +4,18 @@ import { getFirestore } from 'firebase/firestore';
 
 // In AI Studio, we have a generated config file.
 // In professional deployments (Vercel/GitHub), we use environment variables.
-// We merge them here, prioritizing environment variables.
 let appletConfig: any = {};
-try {
-  // @ts-ignore
-  import('../../firebase-applet-config.json').then(m => {
+
+async function loadAppletConfig() {
+  try {
+    // Use vite-ignore to prevent the bundler from failing if the file is missing during build
+    const m = await import(/* @vite-ignore */ '../../firebase-applet-config.json');
     appletConfig = m.default;
-  }).catch(() => {
-    // Expected in production/Vercel where file is gitignored
-  });
-} catch (e) {
-  // Ignore
+    return true;
+  } catch (e) {
+    // This is expected in production/Vercel where the file doesn't exist
+    return false;
+  }
 }
 
 const getFirebaseConfig = () => {
@@ -32,8 +33,10 @@ const getFirebaseConfig = () => {
 let auth: any = null;
 let db: any = null;
 
-const initFirebase = () => {
+const initFirebase = async () => {
+  await loadAppletConfig();
   const config = getFirebaseConfig();
+  
   if (config.apiKey && config.projectId) {
     try {
       const app = getApps().length === 0 ? initializeApp(config) : getApp();
@@ -45,12 +48,8 @@ const initFirebase = () => {
   }
 };
 
-// Immediate attempt
+// Start initialization
 initFirebase();
-
-// Since dynamic import is async, we might need a small delay or a re-attempt
-// In AI Studio the file exists so it usually works immediately
-setTimeout(initFirebase, 500);
 
 export { auth, db };
 export const googleProvider = auth ? new GoogleAuthProvider() : null;
